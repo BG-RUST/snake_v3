@@ -1,11 +1,23 @@
 mod game;
 mod snake;
 mod food;
-use crate::game::GameResult;
+mod network;
+mod dqn;
+
+//use crate::game::GameResult;
 use winit::event_loop::EventLoop;
 
-fn main() {
-    let mut event_loop = EventLoop::new(); // ← один раз тут
+use crate::dqn::DQNAgent;
+use crate::game::{start, GameResult};
 
-    game::start(&mut event_loop);
+fn main() {
+    let mut agent = DQNAgent::new(4, 64, 4, 0.01);
+
+    loop {
+        let result = game::start(&mut agent);
+        if result == GameResult::Exit {
+            break;
+        }
+        println!("Игра завершена. Перезапуск...");
+    }
 }
