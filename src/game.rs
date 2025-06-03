@@ -23,8 +23,8 @@ pub enum GameResult {
     Exit,
 }
 
-pub fn start(agent: &mut DQNAgent) -> GameResult {
-    let mut event_loop = EventLoop::new();
+pub fn start(agent: &mut DQNAgent, event_loop: &mut EventLoop<()>) -> GameResult {
+    //let mut event_loop = EventLoop::new();
 
     let window = WindowBuilder::new()
         .with_title("Snake AI with DQN")
