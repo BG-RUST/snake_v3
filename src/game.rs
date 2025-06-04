@@ -71,22 +71,25 @@ pub fn start(agent: &mut DQNAgent, event_loop: &mut EventLoop<()>) -> GameResult
 
             // 3. Вычисляем новую позицию головы
             let (head_x, head_y) = snake.body[0];
-            let new_head = match snake.direction {
-                Direction::Up => (head_x, head_y.saturating_sub(1)),
-                Direction::Down => (head_x, head_y + 1),
-                Direction::Left => (head_x.saturating_sub(1), head_y),
-                Direction::Right => (head_x + 1, head_y),
+            let (new_x, new_y) = match snake.direction {
+                Direction::Up => (head_x as i32, head_y as i32 - 1),
+                Direction::Down => (head_x as i32, head_y as i32 + 1),
+                Direction::Left => (head_x as i32 - 1, head_y as i32),
+                Direction::Right => (head_x as i32 + 1, head_y as i32),
             };
 
-            let dead = new_head.0 >= BOARD_WIDTH || new_head.1 >= BOARD_HEIGHT;
-            let ate = new_head == food.position;
-            let reward = if ate { 1.0 } else if dead { -1.0 } else { 0.0 };
+            let dead = new_x < 0 || new_y < 0 || new_x >= BOARD_WIDTH as i32 || new_y >= BOARD_HEIGHT as i32;
 
-            // 4. Двигаем змейку
-            snake.move_forvard(new_head, ate);
-            if ate {
-                food = Food::new(&snake.body);
-                score += 1;
+            let (new_head_x, new_head_y) = (new_x as u32, new_y as u32);
+            let ate = !dead && (new_head_x, new_head_y) == food.position;
+            let reward = if ate { 10.0 } else if dead { -10.0 } else { -0.01 }; // -0.01 немного штрафуем за каждый шаг, чтобы мотивировать есть
+
+            if !dead {
+                snake.move_forvard((new_head_x, new_head_y), ate);
+                if ate {
+                    food = Food::new(&snake.body);
+                    score += 1;
+                }
             }
 
             // 5. Получаем следующее состояние

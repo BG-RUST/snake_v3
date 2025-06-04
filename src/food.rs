@@ -17,11 +17,13 @@ impl Food {
 
         loop {
             pos = (rng.gen_range(0..BOARD_WIDTH), rng.gen_range(0..BOARD_HEIGHT));
-            //проверяем не занята ли клетка змейкой
-            if snake_body.contains(&pos) {
+            // Продолжаем, пока позиция ЗАНЯТА
+            if !snake_body.contains(&pos) {
                 break;
             }
         }
+
         Food { position: pos }
     }
+
 }

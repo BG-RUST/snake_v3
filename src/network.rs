@@ -1,4 +1,7 @@
 use rand::prelude::*;
+use std::fs::File;
+use std::io::{BufReader, BufWriter, Write, BufRead};
+
 
 fn relu(x: f32) -> f32 {
     x.max(0.0)
@@ -83,5 +86,72 @@ impl Network {
                 self.weights_ih[j][k] += self.learning_rate * delta;
             }
         }
+    }
+
+    //сохраняем
+    pub fn save_weights_csv(&self, path: &str) -> std::io::Result<()> {
+
+        let mut file = BufWriter::new(File::create(path)?);
+
+        writeln!(file, "{},{},{},{}", self.input_size, self.hidden_size, self.output_size, self.learning_rate)?;
+
+        for row in &self.weights_ih {
+            let line = row.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(",");
+            writeln!(file, "ih, {}", line)?;
+        }
+
+        for row in &self.weights_ho {
+            let line = row.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(",");
+            writeln!(file, "ho, {}", line)?;
+        }
+
+        Ok(())
+    }
+
+    //загружаем модель из текстового файла
+    pub fn load_weights_csv(path: &str) -> std::io::Result<Self> {
+        let file = BufReader::new(File::open(path)?);
+        let mut lines = file.lines();
+
+        let header = lines.next().unwrap()?;
+        let mut parts = header.split(',');
+        let input_size = parts.next().unwrap().parse().unwrap_or(4);
+        let hidden_size = parts.next().unwrap().parse().unwrap_or(64);
+        let output_size = parts.next().unwrap().parse().unwrap_or(4);
+        let learning_rate = parts.next().unwrap().parse().unwrap_or(0.01);
+
+        let mut weights_ih = Vec::new();
+        let mut weights_ho = Vec::new();
+
+        for line in lines {
+            let line = line?;
+            let mut parts = line.split(',');
+            let tag = parts.next().unwrap_or("").trim();
+
+            let row: Vec<f32> = parts
+                .map(|s| s.trim().parse::<f32>())
+                .filter_map(Result::ok)
+                .collect();
+
+            if row.is_empty() {
+                eprintln!("⚠ Пропущена строка с некорректными значениями: {}", line);
+                continue;
+            }
+
+            match tag {
+                "ih" => weights_ih.push(row),
+                "ho" => weights_ho.push(row),
+                _ => eprintln!("⚠ Неизвестный тег в строке: {}", tag),
+            }
+        }
+
+        Ok(Self {
+            input_size,
+            hidden_size,
+            output_size,
+            weights_ih,
+            weights_ho,
+            learning_rate,
+        })
     }
 }

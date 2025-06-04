@@ -26,6 +26,15 @@ impl DQNAgent {
         }
     }
 
+    pub fn new_with_network(network: Network) -> Self {
+        Self {
+            epsilon: 1.0,                     // стартовое значение ε (для ε-greedy стратегии)
+            memory: Vec::new(),              // очищенная память (будет заполняться в процессе)
+            rng: rand::thread_rng(),         // создаём генератор случайных чисел
+            network,                         // <-- вот главное: сюда передаём уже загруженную сеть!
+        }
+    }
+
     ///Выбирает дейтсвие случайное или по нейронке
     pub fn select_action(&mut self, state: &[f32]) -> usize {
         if self.rng.r#gen::<f32>() < self.epsilon {
