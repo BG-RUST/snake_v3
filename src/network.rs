@@ -21,6 +21,11 @@ pub struct Network {
 }
 
 impl Network {
+
+    pub fn is_valid(&self) -> bool {
+        self.weights_ih.iter().flatten().all(|v| v.is_finite()) &&
+            self.weights_ho.iter().flatten().all(|v| v.is_finite())
+    }
     pub fn new(input: usize, hidden: usize, output: usize, lr: f32) -> Self {
         let mut rng = rand::thread_rng();
 
@@ -42,14 +47,16 @@ impl Network {
         }
     }
 
-    pub fn forward(&self, input: &[f32]) -> Vec<f32> {
+    pub fn forward(&self, input: &[f32]) -> (Vec<f32>, Vec<f32>) {
         let hidden: Vec<f32> = self.weights_ih.iter()
             .map(|weights| relu(weights.iter().zip(input).map(|(w, i)| w * i).sum()))
             .collect();
 
-        self.weights_ho.iter()
+        let output: Vec<f32> = self.weights_ho.iter()
             .map(|weights| weights.iter().zip(&hidden).map(|(w, h)| w * h).sum())
-            .collect()
+            .collect();
+
+        (output, hidden)
     }
 
     // Обратное распространение ошибки (однослойное)

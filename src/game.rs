@@ -23,7 +23,7 @@ pub enum GameResult {
     Exit,
 }
 
-pub fn start(agent: &mut DQNAgent, event_loop: &mut EventLoop<()>) -> GameResult {
+pub fn start(agent: &mut DQNAgent, event_loop: &mut EventLoop<()>, episode: usize) -> (GameResult, bool) {
     //let mut event_loop = EventLoop::new();
 
     let window = WindowBuilder::new()
@@ -83,6 +83,7 @@ pub fn start(agent: &mut DQNAgent, event_loop: &mut EventLoop<()>) -> GameResult
             let (new_head_x, new_head_y) = (new_x as u32, new_y as u32);
             let ate = !dead && (new_head_x, new_head_y) == food.position;
             let reward = if ate { 10.0 } else if dead { -10.0 } else { -0.01 }; // -0.01 немного штрафуем за каждый шаг, чтобы мотивировать есть
+            let done = dead;
 
             if !dead {
                 snake.move_forvard((new_head_x, new_head_y), ate);
@@ -96,13 +97,13 @@ pub fn start(agent: &mut DQNAgent, event_loop: &mut EventLoop<()>) -> GameResult
             let next_state = get_state(&snake, &food);
 
             // 6. Сохраняем опыт
-            agent.store_experience(state, action, reward, next_state);
+            agent.store_experience(state, action, reward, next_state, done);
             agent.train();
 
             // 7. Обработка проигрыша
             if dead {
                 println!("Snake crashed. Score: {}", score);
-                agent.log_episode(0, score);
+                agent.log_episode(episode, score);
                 *control_flow = ControlFlow::Exit;
                 result = GameResult::Restart;
                 return;
@@ -131,7 +132,7 @@ pub fn start(agent: &mut DQNAgent, event_loop: &mut EventLoop<()>) -> GameResult
         window.request_redraw();
     });
 
-    result
+    (result, true)
 }
 
 fn draw_cell(x: u32, y: u32, color: [u8; 4], frame: &mut [u8]) {

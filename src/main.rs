@@ -19,7 +19,7 @@ fn main() {
 
     // 2. Пытаемся загрузить веса сети или создаём новую
     let network = Network::load_weights_csv("weights.csv")
-        .unwrap_or_else(|_| Network::new(4, 64, 4, 0.01));
+        .unwrap_or_else(|_| Network::new(11, 64, 4, 0.001));
 
     let (epsilon, mut episode): (f32, usize) = load_agent_state_or_default("agent_state.csv");
 
@@ -29,7 +29,14 @@ fn main() {
 
     // 4. Основной цикл игры
     loop {
-        let result = start(&mut agent, &mut event_loop);
+        if agent.network.is_valid() {
+            if let Err(e) = agent.network.save_weights_csv("weights.csv") {
+                eprintln!("Ошибка при сохранении весов: {}", e);
+            }
+        } else {
+            eprintln!("⚠ Весовая матрица содержит NaN или inf. Пропуск сохранения.");
+        }
+        let (result, _) = start(&mut agent, &mut event_loop, episode);
 
         // 5. Сохраняем веса после каждого эпизода
         if let Err(e) = agent.network.save_weights_csv("weights.csv") {
@@ -44,8 +51,8 @@ fn main() {
         }
 
         println!("Игра завершена. Перезапуск...");
-        agent.epsilon *= 0.995; // Коэффициент спада (можно 0.99 или 0.999)
-        if agent.epsilon < 0.05 {
+        agent.epsilon *= 0.999; // Коэффициент спада (можно 0.99 или 0.999)
+        if agent.epsilon < 0.005 {
             agent.epsilon = 0.05; // Минимальный уровень ε
         }
         episode += 1;
