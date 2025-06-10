@@ -35,6 +35,12 @@ impl Snake {
             self.dir = dir;
         }
     }
+
+    //столкновение с собой
+    pub fn is_colliding_with_self(&self) -> bool {
+        let head = self.head();
+        self.body[1..].contains(&head)
+    }
     pub fn draw(&self, frame: &mut [u8]) {
         let cell_size = 32;
         for &(x, y) in &self.body {

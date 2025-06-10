@@ -10,6 +10,7 @@ use crate::food::Food;
 use crate::border::Border;
 
 use std::time::{Instant, Duration};
+use winit::platform::run_return::EventLoopExtRunReturn;
 
 pub struct Game {
     width: usize,
@@ -30,8 +31,8 @@ impl Game {
         }
     }
 
-    pub fn run(mut self) {
-        let event_loop = EventLoop::new();
+    pub fn run(mut self, event_loop: &mut EventLoop<()>) {
+        //let mut event_loop = EventLoop::new();
         let window = WindowBuilder::new()
             .with_title("Snake with winit")
             .with_inner_size(winit::dpi::LogicalSize::new(self.width as f64, self.height as f64))
@@ -43,7 +44,7 @@ impl Game {
 
         let mut last_update = Instant::now();
 
-        event_loop.run(move |event, _, control_flow| {
+        event_loop.run_return(move |event, _, control_flow| {
             *control_flow = ControlFlow::Poll;
 
             match event {
@@ -79,8 +80,14 @@ impl Game {
 
                         // столкновение с границей — завершить игру
                         let (x, y) = self.snake.head();
-                        if !self.border.is_inside(x, y) {
+                        if x <= 0 || y <= 0 || x as u32 >= self.border.width - 1 || y as u32 >= self.border.height - 1 {
                             println!("Game over! 🧱");
+                            *control_flow = ControlFlow::Exit;
+                            return;
+                        }
+
+                        if self.snake.is_colliding_with_self() {
+                            println!("Game over!");
                             *control_flow = ControlFlow::Exit;
                             return;
                         }

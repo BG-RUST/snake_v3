@@ -16,7 +16,7 @@ impl Food {
 
         let mut rng = rand::thread_rng();
         loop {
-            let pos = (rng.gen_range(0..20), rng.gen_range(0..20));
+            let pos = (rng.gen_range(1..19), rng.gen_range(1..19));
             if !snake_body.contains(&pos) {
                 self.position = pos;
                 break;
