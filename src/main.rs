@@ -2,9 +2,6 @@ mod game;
 mod snake;
 mod food;
 mod border;
-mod snake;
-mod food;
-mod border;
 
 use game::Game;
 

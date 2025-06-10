@@ -13,7 +13,7 @@ impl Snake {
     }
 
     pub fn head(&self) -> (i32, i32) {
-        self.body[0];
+        self.body[0]
     }
 
     pub fn update(&mut self) {
@@ -22,19 +22,32 @@ impl Snake {
         new_head.1 += self.dir.1;
         self.body.insert(0, new_head);
         self.body.pop();
-
     }
 
-    pub fn grow (&mut self) {
+    pub fn grow(&mut self) {
         let tail = *self.body.last().unwrap();
         self.body.push(tail);
     }
 
-    pub fn update(&mut self) {
-
+    pub fn set_dir(&mut self, dir: (i32, i32)) {
+        // предотвращаем разворот на 180°
+        if (self.dir.0 + dir.0, self.dir.1 + dir.1) != (0, 0) {
+            self.dir = dir;
+        }
     }
-
-    pub fn grow(&mut self) {
-
+    pub fn draw(&self, frame: &mut [u8]) {
+        let cell_size = 32;
+        for &(x, y) in &self.body {
+            for dy in 0..cell_size {
+                for dx in 0..cell_size {
+                    let px = (x * cell_size + dx) as usize;
+                    let py = (y * cell_size + dy) as usize;
+                    let i = (py * 640 + px) * 4;
+                    if i + 4 <= frame.len() {
+                        frame[i..i + 4].copy_from_slice(&[0, 255, 0, 255]); // зелёная змейка
+                    }
+                }
+            }
+        }
     }
 }
