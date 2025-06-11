@@ -11,6 +11,9 @@ impl Snake {
             dir: (1, 0),
         }
     }
+    pub fn direction(&self) -> (i32, i32) {
+        self.dir
+    }
 
     pub fn head(&self) -> (i32, i32) {
         self.body[0]
