@@ -56,7 +56,7 @@ where
 
 
             Event::MainEventsCleared => {
-                window.request_redraw();
+                //window.request_redraw();
                 if last_update.elapsed() > tick_rate {
                     snake.update();
 
@@ -64,8 +64,17 @@ where
                         snake.grow();
                         food = Food::new(window_size.width, window_size.height, cell_size);
                     }
+
+                    let(x, y) = snake.body[0];
+                    if x == 1 || y == 1 ||
+                        x >= (window_size.width / cell_size) - 1 ||
+                        y >= (window_size.height / cell_size) - 1 {
+                        println!("Game Over!");
+                        *control_flow = ControlFlow::Exit;
+                    }
                     last_update = std::time::Instant::now();
                 }
+                window.request_redraw();
             }
 
             Event::RedrawRequested(_) => {

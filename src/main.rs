@@ -1,6 +1,7 @@
 mod game;
 mod snake;
 mod food;
+mod net;
 
 use winit::{event_loop::EventLoop, window::WindowBuilder};
 use winit::dpi::PhysicalSize;
