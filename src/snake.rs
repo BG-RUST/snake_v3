@@ -1,5 +1,5 @@
 // src/snake.rs
-use crate::game::draw_cell;
+use crate::game::*;
 
 #[derive(PartialEq, Clone, Copy)]
 pub enum Direction {
@@ -56,4 +56,12 @@ impl Snake {
             draw_cell(frame, x, y, cell_size, screen_width, [0, 255, 0, 255]);
         }
     }
+    pub fn is_colliding_with_self(&self) -> bool {
+        if self.body.len() < 2 {
+            return false;
+        }
+        let head = self.body[0];
+        self.body[1..].contains(&head)
+    }
 }
+
