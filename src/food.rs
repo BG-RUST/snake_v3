@@ -1,5 +1,6 @@
 use rand::Rng;
 use crate::game::draw_cell;
+use crate::snake::Snake;
 
 #[derive(Debug)]
 pub struct Food {
@@ -27,5 +28,17 @@ impl Food {
             screen_width,
             [255, 0, 0, 255],
         );
+    }
+    pub fn new_safe(width: u32, height: u32, cell_size: u32, snake: &Snake) -> Self {
+        let cols = width / cell_size;
+        let rows = height / cell_size;
+        let mut rng = rand::thread_rng();
+        loop {
+            let x = rng.gen_range(1..cols - 1);
+            let y = rng.gen_range(1..rows - 1);
+            if !snake.body.contains(&(x, y)) {
+                return Self { position: (x, y) };
+            }
+        }
     }
 }

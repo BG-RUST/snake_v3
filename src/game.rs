@@ -65,7 +65,7 @@ where
                         snake.grow(); // увеличиваем длину змейки
                         food = Food::new(window_size.width, window_size.height, cell_size); // создаем новую еду в случайной позиции
                     }
-
+                    //буду по новой переделівать
                     // Проверяем столкновения со стенами (границами поля) или своим телом
                     let (head_x, head_y) = snake.body[0];
                     let cols = window_size.width / cell_size;
