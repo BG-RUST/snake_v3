@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Snake AI - Fitness Progress</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+<h2>Fitness per Generation</h2>
+<canvas id="fitnessChart"></canvas>
+<script>
+    fetch('/data')
+        .then(response => response.json())
+        .then(data => {
+            const labels = data.map(d => d.generation);
+            const avg = data.map(d => d.average);
+            const best = data.map(d => d.best);
+
+            new Chart(document.getElementById('fitnessChart'), {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        { label: 'Average Fitness', data: avg, borderColor: 'blue', fill: false },
+                        { label: 'Best Fitness', data: best, borderColor: 'green', fill: false }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    scales: { x: { title: { display: true, text: 'Generation' } },
+                        y: { title: { display: true, text: 'Fitness' } } }
+                }
+            });
+        });
+</script>
+</body>
+</html>

@@ -4,199 +4,201 @@ use std::time::Duration;
 use crate::net::*;
 use crate::snake::*;
 use crate::food::Food;
+use rayon::prelude::*;
+use std::fs::{OpenOptions, write};
+use std::io::Write;
 
-/// Параметры генетического алгоритма
-const POPULATION_SIZE: usize = 100;      // размер популяции (число особей / нейросетей в поколении)
-const MUTATION_RATE: f32 = 0.1;         // вероятность мутации веса (10%)
-const MUTATION_STRENGTH: f32 = 0.5;     // максимальная величина случайного изменения веса при мутации
-const FOOD_REWARD: f32 = 1000.0;        // бонус к фитнесу за съеденную еду
-const STEP_REWARD: f32 = 1.0;           // награда за каждый шаг (можно оставить 1.0, чтобы учитывалось время жизни)
-const MAX_NO_FOOD_STEPS: u32 = 200;     // максимальное количество шагов без еды до принудительного завершения (чтобы змейка не бесконечно блуждала)
-
-// Структура для хранения результата (фитнеса) игры одной змейки
-struct GameResult {
-    steps: u32,
-    food_eaten: u32,
-}
-
-/// Запускает цикл генетического алгоритма в фоновом потоке.
-/// Постоянно улучшает нейросеть, обновляя `best_net` наилучшими найденными весами.
+const POPULATION_SIZE: usize = 2000;
+const MUTATION_RATE: f32 = 0.1;
+const MUTATION_STRENGTH: f32 = 0.2;
+const FOOD_REWARD: f32 = 5000.0;
+const MAX_NO_FOOD_STEPS: u32 = 200;
 
 pub fn run_ga_training(best_net: Arc<Mutex<NeuralNet>>) {
-    // Инициализируем популяцию нейросетей
-    // Если у нас уже есть сохраненная лучшая сеть (best_net), используем ее как первую особь.
-    let initial_best = {best_net.lock().unwrap().clone() };
+    let initial_best = { best_net.lock().unwrap().clone() };
     let input_size = initial_best.input_size;
     let hidden_size = initial_best.hidden_size;
     let output_size = initial_best.output_size;
 
     let mut population: Vec<NeuralNet> = Vec::with_capacity(POPULATION_SIZE);
     population.push(initial_best);
-    // Остальные особи - новые случайные нейросети
     for _ in 1..POPULATION_SIZE {
         population.push(NeuralNet::new(input_size, hidden_size, output_size));
     }
 
     let mut generation: u32 = 0;
     let mut rng = rand::thread_rng();
-    let mut best_fitness_ever: f32 = f32::MIN; // отслеживаем наилучший фитнес за все поколения
+
+    let mut best_fitness_ever: f32 = std::fs::read_to_string("best_fitness.txt")
+        .ok()
+        .and_then(|s| s.parse::<f32>().ok())
+        .unwrap_or(f32::MIN);
+
     println!("Запуск генетического алгоритма с популяцией {}...", POPULATION_SIZE);
-    // Основной цикл поколений GA
+
+    let mut log_file = OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open("fitness_log.csv")
+        .expect("Не удалось открыть файл логов");
+
     loop {
         generation += 1;
-        // 1. Оцениваем каждую сеть (индивида) в текущей популяции, получаем их приспособленность (фитнес)
-        let mut fitnesses: Vec<f32> = Vec::with_capacity(POPULATION_SIZE);
-        let mut best_index = 0;
-        let mut best_fitness = f32::MIN;
-        let mut total_fitness = 0.0;
-        for (index, net) in population.iter().enumerate() {
-            let fitness = evaluate_network(net);
-            fitnesses.push(fitness);
-            total_fitness += fitness;
-            // Находим индекс лучшей особи
-            if fitness > best_fitness {
-                best_fitness = fitness;
-                best_index = index;
-            }
-        }
+
+        let fitnesses: Vec<f32> = population
+            .par_iter()
+            .map(|net| evaluate_network(net))
+            .collect();
+
+        let (best_index, best_fitness) = fitnesses
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+            .unwrap();
+
+        let total_fitness: f32 = fitnesses.iter().sum();
         let average_fitness = total_fitness / POPULATION_SIZE as f32;
 
-        // Сохраняем лучшую сеть текущего поколения
+        writeln!(log_file, "{},{},{}", generation, average_fitness, best_fitness).unwrap();
+
         let best_network = population[best_index].clone();
-        if best_fitness > best_fitness_ever {
-            best_fitness_ever = best_fitness;
-            // Обновляем глобальную лучшую сеть (для использования в игре)
-            // и сохраняем ее веса в файл
+        if *best_fitness > best_fitness_ever {
+            best_fitness_ever = *best_fitness;
             {
                 let mut global_best = best_net.lock().unwrap();
                 *global_best = best_network.clone();
             }
             best_network.save_to_file("best_weights.txt");
+            write("best_fitness.txt", format!("{}", best_fitness_ever)).unwrap();
             println!("Поколение {}: Новый лучший фитнес = {:.2}. Сохраняем веса в файл.", generation, best_fitness);
-
         } else {
             println!("Поколение {}: Лучший фитнес = {:.2}, Средний фитнес = {:.2}", generation, best_fitness, average_fitness);
-
         }
 
-        // 2. Отбор (Selection):
-        // Реализуем отбор с помощью турнира: случайно выбираем несколько особей и берем лучшую из них.
-        let tournament_size = 5;
-        let mut select_parent = |rng: &mut rand::rngs::ThreadRng| -> usize {
-            let mut best_idx = rng.gen_range(0..POPULATION_SIZE);
-            let mut best_fit = fitnesses[best_idx];
-            // выбираем tournament_size случайных индексов и находим среди них наилучший фитнес
-            for _ in 1..tournament_size {
-                let idx = rng.gen_range(0..POPULATION_SIZE);
-                if fitnesses[idx] > best_fit {
-                    best_fit = fitnesses[idx];
-                    best_idx = idx;
+        let new_population: Vec<NeuralNet> = (0..POPULATION_SIZE - 1)
+            .into_par_iter()
+            .map(|_| {
+                let mut thread_rng = rand::thread_rng();
+                let p1 = select_parent(&fitnesses, &mut thread_rng);
+                let mut p2 = select_parent(&fitnesses, &mut thread_rng);
+                while p1 == p2 {
+                    p2 = select_parent(&fitnesses, &mut thread_rng);
                 }
-            }
-            best_idx
-        };
+                let parent1 = &population[p1];
+                let parent2 = &population[p2];
 
-        // 3. Воспроизведение (Reproduction): формируем новое поколение.
-        let mut new_population: Vec<NeuralNet> = Vec::with_capacity(POPULATION_SIZE);
-        // Элитизм: переносим лучшую особь без изменений в следующее поколение
+                let mut child = crossover(parent1, parent2);
+                mutate(&mut child, &mut thread_rng);
+                child
+            })
+            .collect();
+
+        let mut new_population = new_population;
         new_population.push(population[best_index].clone());
-        // Остальных особей генерируем путем скрещивания (crossover) и мутаций
-        while new_population.len() < POPULATION_SIZE {
-            // Выбираем двух родителей (их индексы в старой популяции) с помощью турнира
-            let mut p1_index = select_parent(&mut rng);
-            let mut p2_index = select_parent(&mut rng);
-            // гарантируем, что родители разные (в редком случае, когда турнир вернул одинаковых)
-            if p1_index == p2_index {
-                p2_index = select_parent(&mut rng);
-            }
-            let parent1 = &population[p1_index];
-            let parent2 = &population[p2_index];
-            // Создаем нового ребенка путем скрещивания генов родителей
-            let mut child = crossover(parent1, parent2);
-            // Применяем мутацию к ребенку
-            mutate(&mut child, &mut rng);
-            // Добавляем ребенка в новую популяцию
-            new_population.push(child);
-        }
-        // Обновляем популяцию новым поколением
-        population = new_population;
-        // (Опционально) можно сделать небольшую паузу между поколениями,
-        // чтобы не нагружать CPU на 100%, и чтобы визуально успевать следить за выводом:
-        // std::thread::sleep(Duration::from_millis(10));
 
+        population = new_population;
+    }
+}
+
+fn select_parent(fitnesses: &Vec<f32>, rng: &mut impl rand::Rng) -> usize {
+    let tournament_size = 5;
+    let mut best_idx = rng.gen_range(0..fitnesses.len());
+    let mut best_fit = fitnesses[best_idx];
+
+    for _ in 1..tournament_size {
+        let idx = rng.gen_range(0..fitnesses.len());
+        if fitnesses[idx] > best_fit {
+            best_fit = fitnesses[idx];
+            best_idx = idx;
+        }
     }
 
+    best_idx
 }
-/// Функция оценки (fitness function): запускает игру для заданной нейросети `net` и вычисляет фитнес.
-/// Фитнес основывается на количестве съеденной еды и пройденных шагов (чем больше, тем лучше).
-fn evaluate_network(net: &NeuralNet) -> f32 {
-    // Создаем отдельную змейку и еду для симуляции (не связаны с основной игрой)
-    let mut snake = Snake::new();
-    let mut food = Food::new(800, 600, 20);
-    let mut steps = 0;
-    let mut food_eaten = 0;
-    let mut steps_since_last_food = 0;
 
-    // Выполняем симуляцию игры для данной нейросети
+fn evaluate_network(net: &NeuralNet) -> f32 {
+    let mut snake = Snake::new();
+    let mut food  = Food::new_safe(800, 600, 20, &snake);
+
+    let mut fitness = 0.0;
+    let mut steps_since_food = 0;
+    let mut prev_dist = manhattan(snake.body[0], food.position);
+
+    use std::collections::HashSet;
+    let mut visited = HashSet::new();
+
     loop {
-        steps += 1;
-        steps_since_last_food += 1;
-        // Нейросеть принимает решение, куда двигаться
-        let direction = net.decide_direction(&snake, &food, 800, 600);
-        snake.change_dir(direction);
+        visited.insert(snake.body[0]);
+        let dir = net.decide_direction(&snake, &food, 800, 600);
+        snake.change_dir(dir);
         snake.update();
 
-        // Проверяем, не съела ли змейка еду на этом шаге
-        if snake.body[0] == food.position {
-            food_eaten += 1;
+        let head = snake.body[0];
+        let dist = manhattan(head, food.position);
+
+        if dist < prev_dist {
+            fitness += 1.0;
+        } else {
+            fitness -= 0.5;
+        }
+        prev_dist = dist;
+
+        if head == food.position {
+            fitness += FOOD_REWARD;
             snake.grow();
-            food = Food::new(800, 600, 20);
-            steps_since_last_food = 0;
+            food = Food::new_safe(800, 600, 20, &snake);
+            prev_dist = manhattan(snake.body[0], food.position);
+            steps_since_food = 0;
+        } else {
+            steps_since_food += 1;
         }
 
-        // Проверяем столкновения со стеной или с собой
-        let (head_x, head_y) = snake.body[0];
-        let cols = 800 / 20;
-        let rows = 600 / 20;
-        let hit_wall = head_x == 1 || head_y == 1 || head_x >= cols - 1 || head_y >= rows - 1;
-        let hit_self = snake.is_colliding_with_self();
-        // Проверяем условие истощения: слишком долго без пищи
-        let starved = steps_since_last_food > MAX_NO_FOOD_STEPS;
-        if hit_wall || hit_self || starved {
-            break;
+        fitness += 0.01;
+
+        if steps_since_food > 200 {
+            fitness -= 0.1 * (steps_since_food as f32 / 200.0);
         }
-        // Ограничение по шагам (предохранитель, чтобы игра не шла бесконечно)
-        if steps > 10000 {
+
+        if visited.len() < (snake.body.len() + 5) {
+            fitness -= 0.05;
+        }
+
+        let hit_wall = is_hit_wall(head, 800, 600, 20);
+        let hit_self = snake.is_colliding_with_self();
+        let starved  = steps_since_food > MAX_NO_FOOD_STEPS;
+        if hit_wall || hit_self || starved || fitness.is_nan() {
             break;
         }
     }
-    // Рассчитываем фитнес:
-    // количество шагов (время жизни) * награда за шаг + количество еды * большой бонус
-    let fitness = steps as f32 * STEP_REWARD + food_eaten as f32 * FOOD_REWARD;
-    fitness
 
+    fitness
 }
 
-/// Скрещивание (crossover) двух родительских нейросетей для создания ребенка.
-/// Мы используем равновероятное (uniform) скрещивание: каждый вес ребенка берется от одного из родителей с равной вероятностью.
+fn manhattan(a: (u32,u32), b: (u32,u32)) -> f32 {
+    ((a.0 as i32 - b.0 as i32).abs() + (a.1 as i32 - b.1 as i32).abs()) as f32
+}
+
+fn is_hit_wall(head: (u32,u32), width: u32, height: u32, cell_size: u32) -> bool {
+    let cols = width / cell_size;
+    let rows = height / cell_size;
+    let (x,y) = head;
+    x <= 1 || y <= 1 || x >= cols-1 || y >= rows-1
+}
+
 fn crossover(parent1: &NeuralNet, parent2: &NeuralNet) -> NeuralNet {
     let mut child = parent1.clone();
-    // Скрещиваем веса input->hidden
     for i in 0..parent1.input_size {
         for j in 0..parent1.hidden_size {
             if rand::random::<f32>() < 0.5 {
-                // с вероятностью 50% берем ген от второго родителя
                 child.weights_input_hidden[i][j] = parent2.weights_input_hidden[i][j];
             }
         }
     }
-    // Скрещиваем bias скрытого слоя
     for j in 0..parent1.hidden_size {
         if rand::random::<f32>() < 0.5 {
             child.bias_hidden[j] = parent2.bias_hidden[j];
         }
     }
-    // Скрещиваем веса hidden->output
     for j in 0..parent1.hidden_size {
         for k in 0..parent1.output_size {
             if rand::random::<f32>() < 0.5 {
@@ -204,7 +206,6 @@ fn crossover(parent1: &NeuralNet, parent2: &NeuralNet) -> NeuralNet {
             }
         }
     }
-    // Скрещиваем bias выходного слоя
     for k in 0..parent1.output_size {
         if rand::random::<f32>() < 0.5 {
             child.bias_output[k] = parent2.bias_output[k];
@@ -213,9 +214,6 @@ fn crossover(parent1: &NeuralNet, parent2: &NeuralNet) -> NeuralNet {
     child
 }
 
-
-/// Мутация: случайно изменяет некоторые веса у данной нейросети `net`.
-/// Для каждого веса и bias с вероятностью MUTATION_RATE происходит изменение на небольшое случайное значение.
 fn mutate(net: &mut NeuralNet, rng: &mut rand::rngs::ThreadRng) {
     for i in 0..net.input_size {
         for j in 0..net.hidden_size {
@@ -225,14 +223,12 @@ fn mutate(net: &mut NeuralNet, rng: &mut rand::rngs::ThreadRng) {
             }
         }
     }
-    // Мутация bias скрытого слоя
     for j in 0..net.hidden_size {
         if rng.r#gen::<f32>() < MUTATION_RATE {
             let delta = rng.gen_range(-MUTATION_STRENGTH..MUTATION_STRENGTH);
             net.bias_hidden[j] += delta;
         }
     }
-    // Мутация весов hidden->output
     for j in 0..net.hidden_size {
         for k in 0..net.output_size {
             if rng.r#gen::<f32>() < MUTATION_RATE {
@@ -241,7 +237,6 @@ fn mutate(net: &mut NeuralNet, rng: &mut rand::rngs::ThreadRng) {
             }
         }
     }
-    // Мутация bias выходного слоя
     for k in 0..net.output_size {
         if rng.r#gen::<f32>() < MUTATION_RATE {
             let delta = rng.gen_range(-MUTATION_STRENGTH..MUTATION_STRENGTH);
@@ -249,5 +244,3 @@ fn mutate(net: &mut NeuralNet, rng: &mut rand::rngs::ThreadRng) {
         }
     }
 }
-
-
