@@ -1,19 +1,19 @@
 use rand::Rng;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::fs::{OpenOptions, write};
+use std::io::Write;
+use rayon::prelude::*;
 use crate::net::*;
 use crate::snake::*;
 use crate::food::Food;
-use rayon::prelude::*;
-use std::fs::{OpenOptions, write};
-use std::io::Write;
 
 const POPULATION_SIZE: usize = 2000;
-const MUTATION_RATE: f32 = 0.1;
-const MUTATION_STRENGTH: f32 = 0.2;
+const BASE_MUTATION_RATE: f32 = 0.05;
+const BASE_MUTATION_STRENGTH: f32 = 0.1;
 const FOOD_REWARD: f32 = 5000.0;
 const MAX_NO_FOOD_STEPS: u32 = 200;
-
+const STAGNATION_LIMIT: u32 = 20;
+//неработает так как надо
 pub fn run_ga_training(best_net: Arc<Mutex<NeuralNet>>) {
     let initial_best = { best_net.lock().unwrap().clone() };
     let input_size = initial_best.input_size;
@@ -33,6 +33,10 @@ pub fn run_ga_training(best_net: Arc<Mutex<NeuralNet>>) {
         .ok()
         .and_then(|s| s.parse::<f32>().ok())
         .unwrap_or(f32::MIN);
+
+    let mut mutation_rate = BASE_MUTATION_RATE;
+    let mut mutation_strength = BASE_MUTATION_STRENGTH;
+    let mut stagnation_counter = 0;
 
     println!("Запуск генетического алгоритма с популяцией {}...", POPULATION_SIZE);
 
@@ -64,6 +68,7 @@ pub fn run_ga_training(best_net: Arc<Mutex<NeuralNet>>) {
         let best_network = population[best_index].clone();
         if *best_fitness > best_fitness_ever {
             best_fitness_ever = *best_fitness;
+            stagnation_counter = 0;
             {
                 let mut global_best = best_net.lock().unwrap();
                 *global_best = best_network.clone();
@@ -71,7 +76,15 @@ pub fn run_ga_training(best_net: Arc<Mutex<NeuralNet>>) {
             best_network.save_to_file("best_weights.txt");
             write("best_fitness.txt", format!("{}", best_fitness_ever)).unwrap();
             println!("Поколение {}: Новый лучший фитнес = {:.2}. Сохраняем веса в файл.", generation, best_fitness);
+            mutation_rate = BASE_MUTATION_RATE;
+            mutation_strength = BASE_MUTATION_STRENGTH;
         } else {
+            stagnation_counter += 1;
+            if stagnation_counter >= STAGNATION_LIMIT {
+                mutation_rate = 0.2;
+                mutation_strength = 0.3;
+                println!("\u{26a0}\u{fe0f} Стагнация {} поколений — усиливаем мутацию!", stagnation_counter);
+            }
             println!("Поколение {}: Лучший фитнес = {:.2}, Средний фитнес = {:.2}", generation, best_fitness, average_fitness);
         }
 
@@ -88,14 +101,13 @@ pub fn run_ga_training(best_net: Arc<Mutex<NeuralNet>>) {
                 let parent2 = &population[p2];
 
                 let mut child = crossover(parent1, parent2);
-                mutate(&mut child, &mut thread_rng);
+                mutate(&mut child, &mut thread_rng, mutation_rate, mutation_strength);
                 child
             })
             .collect();
 
         let mut new_population = new_population;
         new_population.push(population[best_index].clone());
-
         population = new_population;
     }
 }
@@ -118,12 +130,11 @@ fn select_parent(fitnesses: &Vec<f32>, rng: &mut impl rand::Rng) -> usize {
 
 fn evaluate_network(net: &NeuralNet) -> f32 {
     let mut snake = Snake::new();
-    let mut food  = Food::new_safe(800, 600, 20, &snake);
+    let mut food = Food::new_safe(800, 600, 20, &snake);
 
     let mut fitness = 0.0;
     let mut steps_since_food = 0;
     let mut prev_dist = manhattan(snake.body[0], food.position);
-
     use std::collections::HashSet;
     let mut visited = HashSet::new();
 
@@ -154,19 +165,17 @@ fn evaluate_network(net: &NeuralNet) -> f32 {
         }
 
         fitness += 0.01;
-
         if steps_since_food > 200 {
             fitness -= 0.1 * (steps_since_food as f32 / 200.0);
         }
-
         if visited.len() < (snake.body.len() + 5) {
             fitness -= 0.05;
         }
 
-        let hit_wall = is_hit_wall(head, 800, 600, 20);
-        let hit_self = snake.is_colliding_with_self();
-        let starved  = steps_since_food > MAX_NO_FOOD_STEPS;
-        if hit_wall || hit_self || starved || fitness.is_nan() {
+        if is_hit_wall(head, 800, 600, 20)
+            || snake.is_colliding_with_self()
+            || steps_since_food > MAX_NO_FOOD_STEPS
+            || fitness.is_nan() {
             break;
         }
     }
@@ -174,15 +183,35 @@ fn evaluate_network(net: &NeuralNet) -> f32 {
     fitness
 }
 
-fn manhattan(a: (u32,u32), b: (u32,u32)) -> f32 {
-    ((a.0 as i32 - b.0 as i32).abs() + (a.1 as i32 - b.1 as i32).abs()) as f32
-}
-
-fn is_hit_wall(head: (u32,u32), width: u32, height: u32, cell_size: u32) -> bool {
-    let cols = width / cell_size;
-    let rows = height / cell_size;
-    let (x,y) = head;
-    x <= 1 || y <= 1 || x >= cols-1 || y >= rows-1
+fn mutate(net: &mut NeuralNet, rng: &mut rand::rngs::ThreadRng, mutation_rate: f32, mutation_strength: f32) {
+    for i in 0..net.input_size {
+        for j in 0..net.hidden_size {
+            if rng.r#gen::<f32>() < mutation_rate {
+                let delta = rng.gen_range(-mutation_strength..mutation_strength);
+                net.weights_input_hidden[i][j] += delta;
+            }
+        }
+    }
+    for j in 0..net.hidden_size {
+        if rng.r#gen::<f32>() < mutation_rate {
+            let delta = rng.gen_range(-mutation_strength..mutation_strength);
+            net.bias_hidden[j] += delta;
+        }
+    }
+    for j in 0..net.hidden_size {
+        for k in 0..net.output_size {
+            if rng.r#gen::<f32>() < mutation_rate {
+                let delta = rng.gen_range(-mutation_strength..mutation_strength);
+                net.weights_hidden_output[j][k] += delta;
+            }
+        }
+    }
+    for k in 0..net.output_size {
+        if rng.r#gen::<f32>() < mutation_rate {
+            let delta = rng.gen_range(-mutation_strength..mutation_strength);
+            net.bias_output[k] += delta;
+        }
+    }
 }
 
 fn crossover(parent1: &NeuralNet, parent2: &NeuralNet) -> NeuralNet {
@@ -214,33 +243,13 @@ fn crossover(parent1: &NeuralNet, parent2: &NeuralNet) -> NeuralNet {
     child
 }
 
-fn mutate(net: &mut NeuralNet, rng: &mut rand::rngs::ThreadRng) {
-    for i in 0..net.input_size {
-        for j in 0..net.hidden_size {
-            if rng.r#gen::<f32>() < MUTATION_RATE {
-                let delta = rng.gen_range(-MUTATION_STRENGTH..MUTATION_STRENGTH);
-                net.weights_input_hidden[i][j] += delta;
-            }
-        }
-    }
-    for j in 0..net.hidden_size {
-        if rng.r#gen::<f32>() < MUTATION_RATE {
-            let delta = rng.gen_range(-MUTATION_STRENGTH..MUTATION_STRENGTH);
-            net.bias_hidden[j] += delta;
-        }
-    }
-    for j in 0..net.hidden_size {
-        for k in 0..net.output_size {
-            if rng.r#gen::<f32>() < MUTATION_RATE {
-                let delta = rng.gen_range(-MUTATION_STRENGTH..MUTATION_STRENGTH);
-                net.weights_hidden_output[j][k] += delta;
-            }
-        }
-    }
-    for k in 0..net.output_size {
-        if rng.r#gen::<f32>() < MUTATION_RATE {
-            let delta = rng.gen_range(-MUTATION_STRENGTH..MUTATION_STRENGTH);
-            net.bias_output[k] += delta;
-        }
-    }
+fn manhattan(a: (u32, u32), b: (u32, u32)) -> f32 {
+    ((a.0 as i32 - b.0 as i32).abs() + (a.1 as i32 - b.1 as i32).abs()) as f32
+}
+
+fn is_hit_wall(head: (u32, u32), width: u32, height: u32, cell_size: u32) -> bool {
+    let cols = width / cell_size;
+    let rows = height / cell_size;
+    let (x, y) = head;
+    x <= 1 || y <= 1 || x >= cols - 1 || y >= rows - 1
 }
