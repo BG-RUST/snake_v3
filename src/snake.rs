@@ -1,7 +1,6 @@
-// src/snake.rs
-use crate::game::*;
+use winit::event::VirtualKeyCode::P;
 
-#[derive(PartialEq, Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Direction {
     Up,
     Down,
@@ -9,59 +8,104 @@ pub enum Direction {
     Right,
 }
 
-pub struct Snake {
-    pub body: Vec<(u32, u32)>,
-    pub next_dir: Direction,
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Point {
+    pub x: usize,
+    pub y: usize,
+}
+
+///snake struct:
+/// - body (vector points from head to tail)
+/// - current direction
+/// - flag - do we need to grow
+pub struct Snake{
+    body: Vec<Point>,
+    dir: Direction,
+    grow: bool,
 }
 
 impl Snake {
-    pub fn new() -> Self {
+    ///create new snake with start pozition
+    pub fn new(x: usize, y: usize) -> Self {
         Self {
-            body: vec![(10, 10)],
-            next_dir: Direction::Right,
+            body: vec![Point { x, y }],
+            dir: Direction::Right,
+            grow: false,
         }
     }
 
-    pub fn change_dir(&mut self, dir: Direction) {
-        // Предотвращаем разворот в обратную сторону
-        match (self.next_dir, dir) {
-            (Direction::Up, Direction::Down) |
-            (Direction::Down, Direction::Up) |
-            (Direction::Left, Direction::Right) |
-            (Direction::Right, Direction::Left) => {},
-            _ => self.next_dir = dir,
+    ///return head point
+    pub fn head(&self) -> Point {
+        self.body[0]
+    }
+
+    ///move snake on one cell in current direction
+    pub fn step(&mut self) {
+        let mut new_head = self.head();
+
+        //change coordinates depending on direction
+        match self.dir {
+            Direction::Up => {
+                if new_head.y > 0 {
+                    new_head.y -= 1;
+                }
+            }
+            Direction::Down => {
+                new_head.y += 1;
+            }
+            Direction::Left => {
+                if new_head.x > 0 {
+                    new_head.x -= 1;
+                }
+            }
+            Direction::Right => {
+                new_head.x += 1;
+            }
+        }
+
+        //insert head in the body begining
+        self.body.insert(0, new_head);
+
+        //if not grow - delete tail(moving without grow)
+        if !self.grow {
+            self.body.pop();
+        } else {
+            self.grow = false;
         }
     }
 
-    pub fn update(&mut self) {
-        let (head_x, head_y) = self.body[0];
-        let new_head = match self.next_dir {
-            Direction::Up => (head_x, head_y.saturating_sub(1)),
-            Direction::Down => (head_x, head_y + 1),
-            Direction::Left => (head_x.saturating_sub(1), head_y),
-            Direction::Right => (head_x + 1, head_y),
+    ///change new direction if this not opposite
+    pub fn set_direction(&mut self, dir: Direction) {
+        let opposite = match self.dir {
+            Direction::Up => Direction::Down,
+            Direction::Down => Direction::Up,
+            Direction::Left => Direction::Right,
+            Direction::Right => Direction::Left,
         };
 
-        self.body.insert(0, new_head);
-        self.body.pop();
+        if dir != opposite {
+            self.dir = dir;
+        }
     }
 
+    ///tell the snake that it should grow up
     pub fn grow(&mut self) {
-        let tail = *self.body.last().unwrap();
-        self.body.push(tail);
+        self.grow = true;
     }
 
-    pub fn draw(&self, frame: &mut [u8], cell_size: u32, screen_width: u32) {
-        for &(x, y) in &self.body {
-            draw_cell(frame, x, y, cell_size, screen_width, [0, 255, 0, 255]);
+    ///death check (hit at wall or herself)
+    pub fn is_dead(&self, width: usize, height: usize) -> bool {
+        let head = self.head();
+
+        //goes beyond the field
+        if head.x >= width || head.y >= height {
+            return true;
         }
-    }
-    pub fn is_colliding_with_self(&self) -> bool {
-        if self.body.len() < 2 {
-            return false;
-        }
-        let head = self.body[0];
+        //crashed into myself
         self.body[1..].contains(&head)
     }
+    ///access body
+    pub fn body(&self) -> &Vec<Point> {
+        &self.body
+    }
 }
-

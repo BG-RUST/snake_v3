@@ -1,144 +1,71 @@
-use winit::{
-    event::{Event, WindowEvent},
-    event_loop::{ControlFlow, EventLoop},
-    window::Window,
-};
-use pixels::{Pixels, SurfaceTexture};
-use std::sync::{Arc, Mutex};
+use crate::snake::{Direction, Snake, Point};
+use crate::food::Food;
+use winit::event::VirtualKeyCode;
 
-use crate::snake::*;
-use crate::food::*;
-use crate::net::NeuralNet;
-
-pub fn run_game_loop<T>(window: Window, event_loop: EventLoop<T>, best_net: Arc<Mutex<NeuralNet>>)
-where
-    T: 'static,
-{
-    let window_size = window.inner_size();
-    let surface_texture = SurfaceTexture::new(window_size.width, window_size.height, &window);
-    let cell_size = 20;
-
-    let mut pixels = Pixels::new(window_size.width, window_size.height, surface_texture)
-        .expect("Не удалось создать Pixel buffer");
-
-    let mut snake = Snake::new();
-    let mut food = Food::new_safe(window_size.width, window_size.height, cell_size, &snake);
-
-    let mut last_update = std::time::Instant::now();
-    let tick_rate = std::time::Duration::from_millis(150);
-
-    event_loop.run(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Poll;
-
-        match event {
-            Event::WindowEvent { event, .. } => match event {
-                WindowEvent::CloseRequested => {
-                    println!("Окно закрывается...");
-                    *control_flow = ControlFlow::Exit;
-                }
-                _ => {}
-            },
-
-            Event::MainEventsCleared => {
-                if last_update.elapsed() > tick_rate {
-                    let direction = {
-                        let net = best_net.lock().unwrap();
-                        net.decide_direction(&snake, &food, window_size.width, window_size.height)
-                    };
-                    snake.change_dir(direction);
-                    snake.update();
-
-                    let head = snake.body[0];
-                    let cols = window_size.width / cell_size;
-                    let rows = window_size.height / cell_size;
-                    let hit_wall = head.0 <= 1 || head.1 <= 1 || head.0 >= cols - 1 || head.1 >= rows - 1;
-                    let hit_self = snake.is_colliding_with_self();
-
-                    if hit_wall || hit_self {
-                        println!("Game Over! (змейка погибла)");
-                        snake = Snake::new();
-                        food = Food::new_safe(window_size.width, window_size.height, cell_size, &snake);
-                        last_update = std::time::Instant::now();
-                        window.request_redraw();
-                        return;
-                    }
-
-                    if head == food.position {
-                        snake.grow();
-                        food = Food::new_safe(window_size.width, window_size.height, cell_size, &snake);
-                    }
-
-                    last_update = std::time::Instant::now();
-                }
-                window.request_redraw();
-            }
-
-            Event::RedrawRequested(_) => {
-                let frame = pixels.frame_mut();
-                fill_background(frame, [30, 30, 30, 255]);
-                draw_borders(frame, window_size.width, window_size.height, cell_size, [255, 120, 120, 233]);
-                snake.draw(frame, cell_size, window_size.width);
-                food.draw(frame, cell_size, window_size.width);
-                pixels.render().expect("Ошибка при отрисовке frame");
-            }
-
-            _ => {}
-        }
-    });
+pub struct Game {
+    width: usize,
+    height: usize,
+    snake: Snake,
+    food: Food,
 }
 
-fn fill_background(frame: &mut [u8], color: [u8; 4]) {
-    for chunk in frame.chunks_exact_mut(4) {
-        chunk.copy_from_slice(&color);
+impl Game {
+    pub fn new(width: usize, height: usize) -> Self {
+        let snake = Snake::new(width / 2, height / 2);
+        let food = Food::new_random(width, height);
+        Self{width, height, snake, food}
     }
-}
 
-fn draw_borders(frame: &mut [u8], width: u32, height: u32, cell_size: u32, color: [u8; 4]) {
-    let screen_width = width as usize;
-    let screen_height = height as usize;
-    let cell = cell_size as usize;
+    /// one game step (called every frame)
+    /// snake is moving
+    /// if eat food  -> it grows and new food appears
+    /// if crash the game start over
+    pub fn update(&mut self) {
+        self.snake.step();
 
-    for y in 0..screen_height / cell {
-        for x in 0..screen_width / cell {
-            let is_border = x == 0 || y == 0 || x == (screen_width / cell - 1) || y == (screen_height / cell - 1);
+        if self.snake.head() == self.food.pos {
+            self.snake.grow();
+            self.food = Food::new_random(self.width, self.height);
+        }
 
-            if is_border {
-                for py in 0..cell {
-                    for px in 0..cell {
-                        let fx = x * cell + px;
-                        let fy = y * cell + py;
-                        let index = (fy * screen_width + fx) * 4;
-
-                        if index + 3 < frame.len() {
-                            frame[index..index + 4].copy_from_slice(&color);
-                        }
-                    }
-                }
-            }
+        if self.snake.is_dead(self.width, self.height) {
+            //restart
+            self.snake = Snake::new(self.width / 2, self.height / 2);
+            self.food = Food::new_random(self.width, self.height);
         }
     }
-}
 
-pub fn draw_cell(
-    frame: &mut [u8],
-    x: u32,
-    y: u32,
-    cell_size: u32,
-    screen_width: u32,
-    color: [u8; 4],
-) {
-    let cell = cell_size as usize;
-    let width = screen_width as usize;
+    ///set new snake direction
+    pub fn set_direction(&mut self, dir: Direction) {
+        self.snake.set_direction(dir);
+    }
 
-    for py in 0..cell {
-        for px in 0..cell {
-            let fx = (x * cell_size + px as u32) as usize;
-            let fy = (y * cell_size + py as u32) as usize;
-            let index = (fy * width + fx) * 4;
-
-            if index + 3 < frame.len() {
-                frame[index..index + 4].copy_from_slice(&color);
-            }
+    ///converts key to direction
+    pub fn key_to_direction(&self, key: VirtualKeyCode) -> Option<Direction> {
+        match key {
+            VirtualKeyCode::Up => Some(Direction::Up),
+            VirtualKeyCode::Down => Some(Direction::Down),
+            VirtualKeyCode::Left => Some(Direction::Left),
+            VirtualKeyCode::Right => Some(Direction::Right),
+            _ => None,
         }
+    }
+
+    ///access to food coordinates (used for rendering)
+    pub fn food(&self) -> Point {
+        self.food.pos
+    }
+
+    ///access to snake (head and body)
+    pub fn snake(&self) -> &Snake {
+        &self.snake
+    }
+
+    ///board size
+    pub fn width(&self) -> usize {
+        self.width
+    }
+    pub fn height(&self) -> usize {
+        self.height
     }
 }
