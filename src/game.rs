@@ -68,4 +68,13 @@ impl Game {
     pub fn height(&self) -> usize {
         self.height
     }
+
+    pub fn set_action_index(&mut self, action: usize) {
+        let dir = match action {
+            1 => self.snake.direction().turn_left(),
+            2 => self.snake.direction().turn_right(),
+            _ => self.snake.direction(),
+        };
+        self.snake.set_direction(dir);
+    }
 }
