@@ -12,7 +12,8 @@ pub struct Individual {
 }
 
 pub fn init_db(path: &str) -> Connection {
-    let conn = Connection::open(path).expext("Failed to open DB");
+    let conn = Connection::open(path).expect("Failed to open DB");
+
     conn.execute_batch(
         "
         CREATE TABLE IF NOT EXISTS individuals (
@@ -49,7 +50,7 @@ pub fn insert_individual(conn: &Connection, ind: &Individual) {
     ).expect("Insert failed");
 }
 
-pub fn get_best_individual(c0nn: &Connection) -> Option<Individual> {
+pub fn get_best_individual(conn: &Connection) -> Option<Individual> {
     let mut stmt = conn.prepare(
         "
         SELECT generation, genome, fitness, steps, eaten
@@ -73,4 +74,16 @@ pub fn get_best_individual(c0nn: &Connection) -> Option<Individual> {
     }).ok();
 
     result
+}
+
+impl From<crate::evolution::Individual> for Individual {
+    fn from(evo: crate::evolution::Individual) -> Self {
+        Self {
+            generation: 0, // пока 0, если хочешь — передавай реальную
+            genome: evo.genome.weights,
+            fitness: evo.fitness,
+            steps: evo.steps,
+            eaten: evo.eaten,
+        }
+    }
 }

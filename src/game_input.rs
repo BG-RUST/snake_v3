@@ -12,8 +12,8 @@ impl GameInput {
         let height = game.height();
         let snake = game.snake();
 
-        input[0] = ((food.x as f32 - head.x as f32) / width as f32);
-        input[1] = ((food.y as f32 / height as f32) / width as f32);
+        input[0] = (food.x as f32 - head.x as f32) / width as f32;
+        input[1] = (food.y as f32 / height as f32) / width as f32;
 
         //current direction
         match snake.direction() {
