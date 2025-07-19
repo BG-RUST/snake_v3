@@ -2,17 +2,18 @@ use crate::{
     game::Game,
     evolution::{Population, Individual},
     game_input::GameInput,
+
     db::{init_db, insert_individual},
     event_loop,
 };
 
 use std::time::Instant;
 
-const POP_SIZE: usize = 50;
-const GENERATIONS: usize = 1000;
-const MAX_STEPS: usize = 2000;
+const POP_SIZE: usize = 100;
+const GENERATIONS: usize = 200;
+const MAX_STEPS: usize = 800;
 const RETAIN_TOP: usize = 10;
-const MUTATION_RATE: f32 = 0.05;
+const MUTATION_RATE: f32 = 0.1;
 const MUTATION_MAG: f32 = 0.2;
 
 pub fn run_training(width: usize, height: usize) {
@@ -48,7 +49,8 @@ pub fn run_training(width: usize, height: usize) {
             }
 
             let eaten = game.snake().body().len().saturating_sub(1);
-            let fitness = eaten as f32 * 10.0 + steps as f32 * 0.01;
+            //let fitness = eaten as f32 * 1000.0 - steps_since_eat as f32 * 0.5;
+            let fitness = (eaten as f32).powf(2.0) * 100.0 - steps_since_eat as f32 * 0.5;
 
             ind.fitness = fitness;
             ind.steps = steps;
@@ -59,7 +61,7 @@ pub fn run_training(width: usize, height: usize) {
         let avg_eaten: f32 =
             population.individuals.iter().map(|i| i.eaten).sum::<usize>() as f32 / POP_SIZE as f32;
 
-        println!(
+       /* println!(
             "Gen {:>3} | Best Fit: {:>7.2} | Eaten: {:>2} | Steps: {:>4} | Avg Eaten: {:.2} | Time: {:?}",
             generation,
             best.fitness,
@@ -67,7 +69,8 @@ pub fn run_training(width: usize, height: usize) {
             best.steps,
             avg_eaten,
             start_time.elapsed()
-        );
+        );*/
+        println!("Gen {} | Eaten {} | Fitness {:.2} | Steps {}", generation, best.eaten, best.fitness, best.steps);
 
         insert_individual(&conn, &(*best).clone().into()); // 💾
 

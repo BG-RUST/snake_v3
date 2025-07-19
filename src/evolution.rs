@@ -67,6 +67,7 @@ impl Population {
             .cloned()
             .collect::<Vec<_>>();
 
+
         let mut rng = rand::thread_rng();
         while new_gen.len() < self.individuals.len() {
             let parent1 = &self.individuals[rng.gen_range(0..retain_top)].genome;
