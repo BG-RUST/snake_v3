@@ -23,6 +23,7 @@ impl Game {
     pub fn update(&mut self) {
         self.snake.step();
 
+
         if self.snake.head() == self.food.pos {
             self.snake.grow();
             self.food = Food::new_random(self.width, self.height);
@@ -76,5 +77,15 @@ impl Game {
             _ => self.snake.direction(),
         };
         self.snake.set_direction(dir);
+    }
+
+    pub fn calc_reward(&self) -> f32 {
+        if self.snake().is_dead(self.width, self.height) {
+            -1.0
+        } else if self.snake().head() == self.food() {
+            2.0 // Увеличим награду
+        } else {
+            -0.005 // Поменьше штраф
+        }
     }
 }

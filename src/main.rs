@@ -1,33 +1,43 @@
+use std::env;
+
+mod brain;
+mod db;
+mod event_loop;
 mod game;
+mod game_input;
+mod replay_buffer;
+mod train;
+mod utils;
 mod snake;
 mod food;
-mod event_loop;
-mod genome;
-mod brain;
-mod evolution;
-mod game_input;
-mod training;
-mod utils;
-mod db;
-use crate::event_loop::*;
-use crate::{
-    db::{init_db, get_best_individual},
-    event_loop::run_best_individual,
-};
+
+use brain::Brain;
+use db::load_checkpoint;
+use event_loop::{run_brain_play, run_human_play};
+use train::train;
 
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
+    let args: Vec<String> = env::args().collect();
 
     if args.contains(&"--train".to_string()) {
-        training::run_training(20, 20);
-    } else if args.contains(&"--best".to_string()) {
-        let conn = init_db("my_snake_ai.db");
-        if let Some(best) = get_best_individual(&conn) {
-            run_best_individual(best.into());
+        println!("🚀 Запуск обучения модели");
+        let (brain, epsilon, start_episode) = if let Some(ckpt) = load_checkpoint("checkpoint.json") {
+            (
+                Brain::from_model(&ckpt.model),
+                ckpt.meta.epsilon,
+                ckpt.meta.episode + 1,
+            )
         } else {
-            eprintln!("❌ Не удалось загрузить лучшую особь из базы данных.");
-        }
+            (Brain::new_random(), 1.0, 0)
+        };
+        train(brain, epsilon, start_episode);
+    } else if args.contains(&"--best".to_string()) {
+        println!("🎯 Запуск лучшей модели");
+        run_brain_play();
+    } else if args.contains(&"--run".to_string()) {
+        println!("🎮 Игра с клавиатуры");
+        run_human_play();
     } else {
-        event_loop::run(); // обычная ручная игра
+        println!("❓ Укажите аргумент запуска: --train | --best | --run");
     }
 }
