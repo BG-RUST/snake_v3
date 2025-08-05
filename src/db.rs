@@ -1,42 +1,30 @@
+// db.rs
+
+use std::fs::File;
+use std::io::{BufReader, Write, Error};
 use serde::{Serialize, Deserialize};
-use std::fs;
-use std::path::Path;
+use crate::network::Network;
+use serde_json;
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct DqnMetadata {
-    pub episode: usize,
+// Структура для сохранения состояния обучения
+#[derive(Serialize, Deserialize)]
+pub struct SaveData {
+    pub network: Network,
     pub epsilon: f32,
-    pub average_reward: f32,
-}
-#[derive(Serialize, Deserialize, Debug)]
-pub struct DqnModel {
-    pub weights: Vec<Vec<Vec<f32>>>, // <--- 3 слоя × веса нейронов
-    pub biases: Vec<Vec<f32>>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct DqnCheckpoint {
-    pub meta: DqnMetadata,
-    pub model: DqnModel,
+// Сохраняет текущую модель и состояние обучения в файл (JSON формат)
+pub fn save(save_data: &SaveData, path: &str) -> Result<(), Error> {
+    let json = serde_json::to_string(save_data).unwrap();
+    let mut file = File::create(path)?;
+    file.write_all(json.as_bytes())?;
+    Ok(())
 }
 
-///save in json file
-pub fn save_checkpoint(path: &str, checkpoint: &DqnCheckpoint) {
-    let json = serde_json::to_string(&checkpoint)
-        .expect("Could not serialize checkpoint");
-    fs::write(path, json)
-        .expect("Could not write checkpoint");
-}
-
-pub fn load_checkpoint(path: &str) -> Option<DqnCheckpoint> {
-    if !Path::new(path).exists() {
-        return None;
-    }
-    let content = fs::read_to_string(path).ok()?;
-    serde_json::from_str(&content).ok()
-
-}
-
-pub fn load_brain() -> Option<DqnModel> {
-    load_checkpoint("checkpoint.json").map(|c| c.model)
+// Загружает модель и состояние обучения из файла
+pub fn load(path: &str) -> Result<SaveData, Error> {
+    let file = File::open(path)?;
+    let reader = BufReader::new(file);
+    let save_data: SaveData = serde_json::from_reader(reader).unwrap();
+    Ok(save_data)
 }

@@ -1,43 +1,39 @@
-use std::env;
-
-mod brain;
+mod snake;
+mod utils;
+mod food;
+mod game;
+mod network;
+mod log;
 mod db;
 mod event_loop;
-mod game;
-mod game_input;
-mod replay_buffer;
-mod train;
-mod utils;
-mod snake;
-mod food;
+mod autodiff;
+mod rl;
 
-use brain::Brain;
-use db::load_checkpoint;
-use event_loop::{run_brain_play, run_human_play};
-use train::train;
+use std::env;
 
-fn main() {
+fn main(){
     let args: Vec<String> = env::args().collect();
 
-    if args.contains(&"--train".to_string()) {
-        println!("🚀 Запуск обучения модели");
-        let (brain, epsilon, start_episode) = if let Some(ckpt) = load_checkpoint("checkpoint.json") {
-            (
-                Brain::from_model(&ckpt.model),
-                ckpt.meta.epsilon,
-                ckpt.meta.episode + 1,
-            )
-        } else {
-            (Brain::new_random(), 1.0, 0)
-        };
-        train(brain, epsilon, start_episode);
-    } else if args.contains(&"--best".to_string()) {
-        println!("🎯 Запуск лучшей модели");
-        run_brain_play();
-    } else if args.contains(&"--run".to_string()) {
-        println!("🎮 Игра с клавиатуры");
-        run_human_play();
-    } else {
-        println!("❓ Укажите аргумент запуска: --train | --best | --run");
+    if args.len() < 2 {
+        eprintln!("usage: {} -- run | --train | --best", args[0]);
+        return;
+    }
+    let mode = args[1].as_str();
+    match mode {
+        "--run" => {
+            let game = game::Game::new();
+            event_loop::run_manual(game);
+        },
+        "--train" => {
+            rl::train();
+        },
+        "--best" => {
+            if let Err(err) = event_loop::run_best() {
+                eprintln!("Error: {}", err);
+            }
+        },
+        _ => {
+            eprintln!("Неизвестный режим: {}. Используйте --run, --train или --best.", mode);
+        }
     }
 }
