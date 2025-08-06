@@ -4,8 +4,8 @@ use crate::food::*;
 use crate::utils::*;
 use crate::network::*;
 
-pub const WIDTH: i32 = 26;
-pub const HEIGHT: i32 = 26;
+pub const WIDTH: i32 = 20;
+pub const HEIGHT: i32 = 20;
 
 pub struct Game {
     pub width: i32,
@@ -56,6 +56,47 @@ impl Game {
         let (dx, dy) = self.snake.direction.delta();
         let new_head = Point { x: head.x + dx, y: head.y + dy };
 
+        // Проверка выхода за границы
+        if new_head.x < 0 || new_head.x >= self.width || new_head.y < 0 || new_head.y >= self.height {
+            println!("💀 Смерть: удар об стену");
+            return (-1.0, true);
+        }
+
+        // Только эта проверка нужна!
+        if new_head.is_in(&self.snake.body) {
+            let tail = *self.snake.body.last().unwrap();
+            let eat = new_head == self.food.position;
+
+            if !(new_head == tail && !eat) {
+                println!("💀 Смерть: столкновение с телом");
+                return (-1.0, true);
+            }
+        }
+
+        let eat = new_head == self.food.position;
+        self.snake.move_forward(eat);
+
+        if eat {
+            self.score += 1;
+            self.spawn_food();
+            return (1.0, false);
+        } else {
+            return (-0.1, false);
+        }
+    }
+
+    /*
+    /// Выполняет один шаг обновления игры.
+    /// Возвращает (съедена ли еда, завершена ли игра)
+    pub fn update(&mut self, new_dir: Direction) -> (f32, bool) {
+        if new_dir != self.snake.direction.opposite() {
+            self.snake.direction = new_dir;
+        }
+
+        let head = self.snake.head();
+        let (dx, dy) = self.snake.direction.delta();
+        let new_head = Point { x: head.x + dx, y: head.y + dy };
+
         if new_head.x < 0 || new_head.x >= self.width || new_head.y < 0 || new_head.y >= self.height {
             return (-1.0, true);
         }
@@ -79,7 +120,7 @@ impl Game {
         }
     }
 
-
+*/
     /// Возвращает признаки (state) для нейросети
 /*    pub fn get_state(&self) -> [f32; 19] {
         let mut state = [0.0; 19];

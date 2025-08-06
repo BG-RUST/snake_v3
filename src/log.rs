@@ -11,6 +11,6 @@ pub fn episode(ep: usize, score: u32, epsilon: f32) {
 
 pub fn reward_log(ep: usize, total: f32) {
     if ep % 100 == 0 {
-        println!("[REWARD] Эпизод {}: total_reward = {:.2}", ep, total);
+       println!("[REWARD] Эпизод {}: total_reward = {:.2}", ep, total);
     }
 }

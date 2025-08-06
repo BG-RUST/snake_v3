@@ -1,5 +1,6 @@
-// 📁 autodiff.rs — с поддержкой графа и совместимо с apply_grads()
+use std::borrow::BorrowMut;
 
+/*
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
@@ -60,6 +61,9 @@ impl Var {
 
     pub fn grad(&self) -> f32 {
         *self.grad.borrow()
+    }
+    pub fn set_grad(&mut self, new_grad: f32) {
+        *self.grad.borrow_mut() = new_grad;
     }
 
     fn add_backward_op<F: 'static + FnMut(f32)>(&self, op: F) {
@@ -155,6 +159,169 @@ pub fn powi(x: Var, power: i32) -> Var {
     out.add_parent(x_clone.clone());
     out.add_backward_op(move |grad| {
         *x_clone.grad.borrow_mut() += grad * (power as f32) * x_clone.value.powi(power - 1);
+    });
+    out
+}
+
+pub fn abs(x: Var) -> Var {
+    let val = x.value.abs();
+    let out = Var::new(val);
+    let x_clone = x.clone();
+    out.add_parent(x_clone.clone());
+    out.add_backward_op(move |grad| {
+        if x_clone.value >= 0.0 {
+            *x_clone.grad.borrow_mut() += grad;
+        } else {
+            *x_clone.grad.borrow_mut() -= grad;
+        }
+    });
+    out
+}
+
+pub fn dot_var(weights: &[Var], vars: &[Var]) -> Var {
+    weights.iter().zip(vars.iter()).fold(Var::new(0.0), |acc, (w, v)| acc + w.clone() * v.clone())
+}*/
+
+use std::cell::RefCell;
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
+use std::ops::{Add, Sub, Mul, Div};
+
+#[derive(Clone)]
+pub struct Var {
+    pub value: f32,
+    grad: Arc<Mutex<f32>>,
+    deps: Arc<Mutex<Vec<(Var, Box<dyn Fn(f32) -> f32 + Send + 'static>)>>>,
+}
+
+impl Var {
+    pub fn new(value: f32) -> Self {
+        Self {
+            value,
+            grad: Arc::new(Mutex::new(0.0)),
+            deps: Arc::new(Mutex::new(vec![])),
+        }
+    }
+
+    pub fn grad(&self) -> f32 {
+        *self.grad.lock().unwrap()
+    }
+
+    pub fn set_grad(&self, g: f32) {
+        *self.grad.lock().unwrap() = g;
+    }
+
+    pub fn add_grad(&self, g: f32) {
+        let mut grad = self.grad.lock().unwrap();
+        *grad += g;
+    }
+
+    pub fn add_dep<F>(&self, var: Var, grad_fn: F)
+    where
+        F: Fn(f32) -> f32 + Send + 'static,
+    {
+        self.deps.lock().unwrap().push((var, Box::new(grad_fn)));
+    }
+
+    pub fn backward(&self) {
+        let mut visited = HashSet::new();
+        self._backward(1.0, &mut visited);
+    }
+
+    fn _backward(&self, grad: f32, visited: &mut HashSet<usize>) {
+        let id = self.id();
+        if visited.contains(&id) {
+            return;
+        }
+        visited.insert(id);
+
+        self.add_grad(grad);
+
+        for (ref v, ref f) in self.deps.lock().unwrap().iter() {
+            let local_grad = f(grad);
+            v._backward(local_grad, visited);
+        }
+    }
+
+    fn id(&self) -> usize {
+        Arc::as_ptr(&self.grad) as usize
+    }
+}
+
+impl Add for Var {
+    type Output = Var;
+    fn add(self, rhs: Var) -> Var {
+        let out = Var::new(self.value + rhs.value);
+        out.add_dep(self.clone(), |_| 1.0);
+        out.add_dep(rhs.clone(), |_| 1.0);
+        out
+    }
+}
+
+impl Sub for Var {
+    type Output = Var;
+    fn sub(self, rhs: Var) -> Var {
+        let out = Var::new(self.value - rhs.value);
+        out.add_dep(self.clone(), |_| 1.0);
+        out.add_dep(rhs.clone(), |_| -1.0);
+        out
+    }
+}
+
+impl Mul for Var {
+    type Output = Var;
+    fn mul(self, rhs: Var) -> Var {
+        let out = Var::new(self.value * rhs.value);
+        let lhs_val = self.value;
+        let rhs_val = rhs.value;
+        out.add_dep(self.clone(), move |_| rhs_val);
+        out.add_dep(rhs.clone(), move |_| lhs_val);
+        out
+    }
+}
+
+impl Div for Var {
+    type Output = Var;
+    fn div(self, rhs: Var) -> Var {
+        let out = Var::new(self.value / rhs.value);
+        let lhs_val = self.value;
+        let rhs_val = rhs.value;
+        out.add_dep(self.clone(), move |_| 1.0 / rhs_val);
+        out.add_dep(rhs.clone(), move |_| -lhs_val / (rhs_val * rhs_val));
+        out
+    }
+}
+
+// Вспомогательные функции
+pub fn powi(base: Var, exponent: i32) -> Var {
+    let val = base.value.powi(exponent);
+    let out = Var::new(val);
+    let base_val = base.value;
+    out.add_dep(base.clone(), move |_| (exponent as f32) * base_val.powi(exponent - 1));
+    out
+}
+
+pub fn abs(x: Var) -> Var {
+    let val = x.value.abs();
+    let out = Var::new(val);
+    let sign = if x.value >= 0.0 { 1.0 } else { -1.0 };
+    out.add_dep(x.clone(), move |_| sign);
+    out
+}
+
+pub fn dot_var(weights: &[Var], vars: &[Var]) -> Var {
+    weights.iter().zip(vars.iter()).fold(Var::new(0.0), |acc, (w, v)| acc + w.clone() * v.clone())
+}
+
+pub fn relu(x: Var) -> Var {
+    let val = if x.value > 0.0 { x.value } else { 0.0 };
+    let out = Var::new(val);
+    let x_clone = x.clone();
+    out.add_parent(x_clone.clone());
+    out.add_backward_op(move |grad| {
+        if x_clone.value > 0.0 {
+            *x_clone.grad.borrow_mut() += grad;
+        }
     });
     out
 }

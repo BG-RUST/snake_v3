@@ -105,7 +105,7 @@ pub fn run_manual(mut game: Game) {
 
 pub fn run_best() -> Result<(), String> {
     let save_data = load("snake_model.json").map_err(|_| "Failed to load model for best agent")?;
-    let net = save_data.network;
+    let net = Network::from_serializable(save_data.network); // ✅ здесь
 
     let mut game = Game::new();
 
@@ -138,7 +138,7 @@ pub fn run_best() -> Result<(), String> {
             Event::RedrawRequested(_) => {
                 if last_update.elapsed() >= update_interval {
                     let state = game.get_state();
-                    let q_values = net.predict(&state);
+                    let q_values = net.predict(&state); // ✅ теперь работает
 
                     let mut max_idx = 0;
                     let mut max_val = q_values[0];
