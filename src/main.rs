@@ -1,39 +1,44 @@
+mod event_loop;
 mod snake;
-mod utils;
 mod food;
-mod game;
-mod network;
+mod utils;
 mod log;
 mod db;
-mod event_loop;
-mod autodiff;
-mod rl;
-
+mod network;
+mod dqn;
+mod game;
 use std::env;
 
-fn main(){
-    let args: Vec<String> = env::args().collect();
 
-    if args.len() < 2 {
-        eprintln!("usage: {} -- run | --train | --best", args[0]);
-        return;
-    }
-    let mode = args[1].as_str();
+fn main() {
+    //read arguments after --
+    let args: Vec<String> = env::args().skip(1).collect();
+
+    let mode = if args.contains(&"--best".to_string()) {
+        "best"
+    } else if args.contains(&"--train".to_string()) {
+        "train"
+    } else {
+        "run"
+    };
+
+    //board size
+    let grid_w = 24usize;
+    let grid_h = 16usize;
+
     match mode {
-        "--run" => {
-            let game = game::Game::new();
-            event_loop::run_manual(game);
-        },
-        "--train" => {
-            rl::train();
-        },
-        "--best" => {
-            if let Err(err) = event_loop::run_best() {
-                eprintln!("Error: {}", err);
+        "run" => {
+            let game = game::Game::new(grid_w, grid_h);
+            if let Err(e) = event_loop::run_manual(game) {
+                eprintln!("fatal: {e}");
             }
-        },
-        _ => {
-            eprintln!("Неизвестный режим: {}. Используйте --run, --train или --best.", mode);
         }
+        "best" => {
+            eprintln!("")
+        }
+        "train" => {
+            eprintln!("")
+        }
+        _ => {}
     }
 }

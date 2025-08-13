@@ -1,29 +1,22 @@
-///Здесь определена структура Point для координат на игровом поле и функция генерации случайной точки для размещения еды:
-use rand::Rng;
+//simplest deterministic RNG without thrid party crates
+pub struct LcgRng { state: u64 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct Point {
-    pub x: i32,
-    pub y: i32,
-}
 
-impl Point {
-    //returns true if this point is present in the points list
-    pub fn is_in(&self, points: &Vec<Point>) -> bool {
-        points.iter().any(|p| p.x == self.x && p.y == self.y)
+impl LcgRng {
+    pub fn new(seed: u64) -> Self { Self { state: seed } }
+
+    #[inline]
+    fn next_u64(&mut self) -> u64 {
+        // Параметры: Numerical Recipes.
+        self.state = self.state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1);
+        self.state
     }
-}
 
-// Генерирует случайную точку в пределах [0, width) x [0, height)
-pub fn random_point(width: i32, height: i32) -> Point {
-    let mut rng = rand::thread_rng();
-    let x = rng.r#gen_range(0..width);
-    let y = rng.r#gen_range(0..height);
-    Point {x , y}
-}
-
-impl Point {
-    pub fn manhattan(&self, other: Point) -> i32 {
-        (self.x - other.x).abs() + (self.y - other.y).abs()
+    // Случайное число в [0, n).
+    pub fn gen_range_u32(&mut self, n: u32) -> u32 {
+        // Берём 32 бита и берём модуль.
+        (self.next_u64() as u32) % n
     }
 }

@@ -1,5 +1,8 @@
-use crate::utils::Point;
+pub struct Food {
+    pub x: usize,
+    pub y: usize,
+}
 
-pub struct Food{
-    pub position: Point,
+impl Food {
+    pub fn at(x: usize, y: usize) -> Self {Self {x, y}}
 }

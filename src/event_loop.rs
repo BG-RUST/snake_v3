@@ -1,181 +1,183 @@
-use winit::event::{Event, WindowEvent, VirtualKeyCode, ElementState};
-use winit::event_loop::{EventLoop, ControlFlow};
-use winit::window::WindowBuilder;
+use winit::{
+    dpi::LogicalSize,
+    event::{ElementState, Event, KeyboardInput, VirtualKeyCode, WindowEvent },
+    event_loop::{ControlFlow, EventLoop},
+    window::{Window, WindowBuilder},
+};
 use pixels::{Pixels, SurfaceTexture};
-use std::time::{Instant, Duration};
-use crate::game::Game;
-use crate::snake::Direction;
-use crate::network::*;
-use crate::db::load;
+use std::time::{Duration, Instant};
+use crate::game::*;
+use crate::snake::*;
 
-const CELL_SIZE: u32 = 20;
+//cell size in pixels
+const CELL_PX: u32 = 24;
+//speed snake
+const STEP_MS:u64 = 100;
 
-fn draw_frame(frame: &mut [u8], game: &Game) {
-    let width = game.width as u32;
-    let height = game.height as u32;
+//manual game mod in separate window
+pub fn run_manual(mut game: Game) -> Result<(), String> {
+    let win_w = (game.width() as u32) * CELL_PX;
+    let win_h = (game.height() as u32) * CELL_PX;
 
-    for y in 0..height {
-        for x in 0..width {
-            let idx = ((y * width + x) * 4) as usize;
-            let xi = x as i32;
-            let yi = y as i32;
+    let event_loop = EventLoop::new();
+    let window = WindowBuilder::new()
+        .with_title("Snake - manual")
+        .with_inner_size(LogicalSize::new(win_w as f64, win_h as f64))
+        .with_min_inner_size(LogicalSize::new(win_w as f64, win_h as f64))
+        .build(&event_loop)
+        .map_err(|e| format!("Error creating window: {}", e))?;
 
-            let (r, g, b) = if game.snake.body[0].x == xi && game.snake.body[0].y == yi {
-                (0, 255, 0) // голова
-            } else if game.snake.body.iter().skip(1).any(|p| p.x == xi && p.y == yi) {
-                (0, 160, 0) // тело
-            } else if game.food.position.x == xi && game.food.position.y == yi {
-                (255, 0, 0) // еда
-            } else {
-                (0, 0, 0) // фон
-            };
+    //surface texture for pixels
+    let surface = SurfaceTexture::new(win_w, win_h, &window);
+    //initialization pixels with fix buffer
+    let mut pixels = Pixels::new(win_w, win_h, surface)
+        .map_err(|e| format!("Error creating pixels: {}", e))?;
 
-            frame[idx] = r;
-            frame[idx + 1] = g;
-            frame[idx + 2] = b;
-            frame[idx + 3] = 0xFF;
+    //requested direction from the keyboard, passed to the game on each tick
+    let mut pending_dir = Dir::Right;
+
+    //logiacal update timer
+    let mut acc = Duration::ZERO;
+    let step_dt = Duration::from_millis(STEP_MS);
+    let mut prev = Instant::now();
+
+    //run event loop
+    event_loop.run(move |event, _, control_flow| {
+        *control_flow = ControlFlow::Poll;
+
+        match event {
+            Event::RedrawRequested(_) => {
+                //get a mutable slice of the RGBA buffer
+                let frame = pixels.frame_mut();
+                //draw current game state into the buffer
+                render_frame(frame, &game);
+
+                //display the frame on thw screen
+                if let Err(e) = pixels.render() {
+                    eprintln!("Error rendering frame: {}", e);
+                    *control_flow = ControlFlow::Exit;
+                }
+            }
+            //the main point of the loop is to check whether it is time to take a logical step
+            Event::MainEventsCleared => {
+                let now = Instant::now();
+                acc += now - prev;
+                prev = now;
+
+                while acc >= step_dt {
+                    acc -= step_dt;
+
+                    game.set_pending_dir(pending_dir); // применяем 1 раз на тик
+                    game.step();
+
+                    if game.is_done() {
+                        game.reset();
+                        pending_dir = Dir::Right;
+                    }
+                }
+
+                // один redraw на кадр
+                window.request_redraw();
+            }
+
+            //handle window/keyboard events
+            Event::WindowEvent {event, .. } => match event {
+                WindowEvent::CloseRequested => {
+                    *control_flow = ControlFlow::Exit;
+                }
+                WindowEvent::Resized(size) => {
+                    //adjust the surface to the new window (the buffer remains the same size)
+                    if let Err(e) = pixels.resize_surface(size.width, size.height) {
+                        eprintln!("Error resizing window: {}", e);
+                        *control_flow = ControlFlow::Exit;
+                    }
+                }
+                WindowEvent::KeyboardInput {
+                    input:
+                    KeyboardInput {
+                        state,
+                        virtual_keycode: Some(key),
+                        ..
+                    },
+                    ..
+                } => {
+                    if state == ElementState::Pressed {
+                        match key {
+                            VirtualKeyCode::Up => pending_dir = Dir::Up,
+                            VirtualKeyCode::Down => pending_dir = Dir::Down,
+                            VirtualKeyCode::Left => pending_dir = Dir::Left,
+                            VirtualKeyCode::Right => pending_dir = Dir::Right,
+                            VirtualKeyCode::R => game.reset(),
+                            VirtualKeyCode::Escape => *control_flow = ControlFlow::Exit,
+                            _ => {}
+                        }
+                    }
+                }
+                _=> {}
+            },
+            _ => {}
         }
+
+    });
+}
+//helper function: draw one frame to an RGBA buffer.
+fn render_frame(frame: &mut [u8], game: &Game) {
+    let win_w = (game.width() as u32) * CELL_PX;
+    let win_h = (game.height() as u32) * CELL_PX;
+
+    //Background fill (dark)
+    fill_rect(frame, win_w, win_h, 0, 0, win_w, win_h, [18, 18, 22, 255]);
+
+    //draw the grid with thin lines
+    for gx in 0..=game.width() as u32 {
+        let x = gx * CELL_PX;
+        fill_rect(frame, win_w, win_h, x, 0, 1, win_h, [30, 30, 36, 255]);
+    }
+    for gy in 0..=game.height() as u32 {
+        let y = gy * CELL_PX;
+        fill_rect(frame, win_w, win_h, 0,y, win_w, 1, [30, 30, 36, 255]);
+    }
+    //food - red square
+    let (fx, fy) = game.food_pos();
+    draw_cell(frame, win_w, win_h, fx as u32, fy as u32, [200, 60, 36, 255]);
+
+    //snake body is green squares
+    //head is lighter for distinction
+
+    let segs = game.snake_segments();
+    for (i, (x, y)) in segs.iter().enumerate() {
+        let is_head = i + 1 == segs.len();
+        let col = if is_head { [80, 220, 120, 255] } else { [60, 180, 90, 255] };
+        draw_cell(frame, win_w, win_h, *x as u32, *y as u32, col);
     }
 }
 
-pub fn run_manual(mut game: Game) {
-    let event_loop = EventLoop::new();
-    let window = WindowBuilder::new()
-        .with_title("Snake RL - Manual")
-        .with_inner_size(winit::dpi::LogicalSize::new(
-            (game.width * CELL_SIZE as i32) as f64,
-            (game.height * CELL_SIZE as i32) as f64,
-        ))
-        .build(&event_loop)
-        .unwrap();
-
-    let surface_texture = SurfaceTexture::new(window.inner_size().width, window.inner_size().height, &window);
-    let mut pixels = Pixels::new(game.width as u32, game.height as u32, surface_texture).unwrap();
-
-    let mut last_update = Instant::now();
-    let update_interval = Duration::from_millis(100);
-
-    event_loop.run(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Poll;
-        match event {
-            Event::WindowEvent { event, .. } => {
-                if let WindowEvent::CloseRequested = event {
-                    *control_flow = ControlFlow::Exit;
-                }
-
-                if let WindowEvent::KeyboardInput { input, .. } = event {
-                    if let Some(key) = input.virtual_keycode {
-                        if input.state == ElementState::Pressed {
-                            game.snake.direction = match key {
-                                VirtualKeyCode::Up if game.snake.direction != Direction::Down => Direction::Up,
-                                VirtualKeyCode::Down if game.snake.direction != Direction::Up => Direction::Down,
-                                VirtualKeyCode::Left if game.snake.direction != Direction::Right => Direction::Left,
-                                VirtualKeyCode::Right if game.snake.direction != Direction::Left => Direction::Right,
-                                _ => game.snake.direction,
-                            };
-                        }
-                    }
-                }
-            }
-
-            Event::RedrawRequested(_) => {
-                if last_update.elapsed() >= update_interval {
-                    let (_reward, done) = game.update(game.snake.direction);
-                    if done {
-                        game = Game::new();
-                    }
-                    last_update = Instant::now();
-                }
-
-                draw_frame(pixels.frame_mut(), &game);
-
-                if pixels.render().is_err() {
-                    *control_flow = ControlFlow::Exit;
-                }
-            }
-
-            Event::MainEventsCleared => {
-                window.request_redraw();
-            }
-
-            _ => {}
-        }
-    });
+//draw one cell
+fn draw_cell(frame: &mut [u8], win_w: u32, win_h: u32, cx: u32, cy: u32, rgba: [u8; 4]) {
+    let x0 = cx * CELL_PX;
+    let y0 = cy * CELL_PX;
+    fill_rect(frame, win_w, win_h, x0, y0, CELL_PX, CELL_PX, rgba);
 }
 
-pub fn run_best() -> Result<(), String> {
-    let save_data = load("snake_model.json").map_err(|_| "Failed to load model for best agent")?;
-    let net = Network::from_serializable(save_data.network); // ✅ здесь
+//fill the rectangle in the pixel buffer, coordinates in pixels
+fn fill_rect(frame: &mut [u8], win_w: u32, win_h: u32, x: u32, y: u32, w: u32, h: u32, rgba: [u8; 4]) {
+    // Ограничиваем прямоугольник границами буфера.
+    //limit rectangle to the buffer boundaries
+    let x1 = (x + w).min(win_w);
+    let y1 = (y + h).min(win_h);
 
-    let mut game = Game::new();
+    //we go through the rows and columns of the ractangle
+    for py in y..y1 {
+        //offset the start of the line in bytes (4 bytes on pixel)
+        let row_off = (py as usize) * (win_w as usize) * 4;
+        for px in x..x1 {
+            //offset of a specific pixel (offset - смещение)
+            let off = row_off + (px as usize) * 4;
+            frame[off + 0] = rgba[0]; // R
+            frame[off + 1] = rgba[1]; // G
+            frame[off + 2] = rgba[2]; // B
+            frame[off + 3] = rgba[3]; // A
 
-    let event_loop = EventLoop::new();
-    let window = WindowBuilder::new()
-        .with_title("Snake RL - Best Agent")
-        .with_inner_size(winit::dpi::LogicalSize::new(
-            (game.width * CELL_SIZE as i32) as f64,
-            (game.height * CELL_SIZE as i32) as f64,
-        ))
-        .build(&event_loop)
-        .unwrap();
-
-    let surface_texture = SurfaceTexture::new(window.inner_size().width, window.inner_size().height, &window);
-    let mut pixels = Pixels::new(game.width as u32, game.height as u32, surface_texture).unwrap();
-
-    let mut last_update = Instant::now();
-    let update_interval = Duration::from_millis(50);
-
-    event_loop.run(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Poll;
-
-        match event {
-            Event::WindowEvent { event, .. } => {
-                if let WindowEvent::CloseRequested = event {
-                    *control_flow = ControlFlow::Exit;
-                }
-            }
-
-            Event::RedrawRequested(_) => {
-                if last_update.elapsed() >= update_interval {
-                    let state = game.get_state();
-                    let q_values = net.predict(&state); // ✅ теперь работает
-
-                    let mut max_idx = 0;
-                    let mut max_val = q_values[0];
-                    for i in 1..OUTPUT_SIZE {
-                        if q_values[i] > max_val {
-                            max_val = q_values[i];
-                            max_idx = i;
-                        }
-                    }
-
-                    let best_dir = match max_idx {
-                        0 => game.snake.direction.left(),
-                        1 => game.snake.direction,
-                        2 => game.snake.direction.right(),
-                        _ => game.snake.direction,
-                    };
-
-                    let (_reward, done) = game.update(best_dir);
-                    if done {
-                        game = Game::new();
-                    }
-
-                    last_update = Instant::now();
-                }
-
-                draw_frame(pixels.frame_mut(), &game);
-
-                if pixels.render().is_err() {
-                    *control_flow = ControlFlow::Exit;
-                }
-            }
-
-            Event::MainEventsCleared => {
-                window.request_redraw();
-            }
-
-            _ => {}
         }
-    });
+    }
 }
