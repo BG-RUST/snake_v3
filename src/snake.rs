@@ -48,24 +48,15 @@ impl Snake {
         *self.body.back().unwrap()
     }
     //segments from render
-    pub fn segments(&self) -> &[(i32, i32)]{
-        // VecDeque не хранит сплошной срез; для простоты собираем в промежуточный вектор.
-        // Здесь можно оптимизировать позже; поле маленькое — накладные расходы малы.
-        // ВАЖНО: возвращаем ссылку на внутренний кеш? Нет — создадим статический буфер в Game при надобности.
-        // Упрощение: преобразуем в Vec в Game. Но чтобы упростить, здесь сделаем временный "unsafe" трюк — нет.
-        // Решение: в Game уже вызываем .snake.segments() только для чтения; упростим: вернём через временный static.
-        // Однако это усложняет. Поэтому поступим иначе: предоставим итератор. Но рендер ждёт срез.
-        // Идём простым путём: получим временный slice через Vec, а Game сохранит его у себя, если нужно.
-        // Чтобы не усложнять, заменим сигнатуру: вернём Vec<(i32,i32)>.
-
-        // Этот метод не будет использоваться. Оставим заглушку, реальная отдача сегментов — ниже через to_vec().
-        &[]
-    }
 
     //convenience method: get a copy pf the segments as a vec
     pub fn segments_vec(&self) -> Vec<(i32, i32)>{
         self.body.iter().copied().collect()
     }
+    //current direction - needed for RL "relative" actions and observation
+    pub fn dir(&self) -> Dir { self.dir }
+    pub fn len(&self) -> usize { self.body.len() }
+
 
     //apply the desired direction if it is not opposite to the current one
     pub fn apply_dir(&mut self, want: Dir) {
@@ -92,7 +83,7 @@ impl Snake {
 
     //check if the snake occupies cell(x,y)
     pub fn occupies(&self, x: i32, y: i32) -> bool {
-        self.body.iter().any(|&(sx, sy) | sx == x && sy == y)
+        self.body.iter().any(|&(sx, sy)| sx == x && sy == y)
     }
 
     //head collision with body (the last segmenr is head, we dont count it)
