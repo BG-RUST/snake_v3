@@ -40,7 +40,7 @@ fn main() {
 
         // Preview the trained/best model in a window (no learning).
         "best" => {
-            // Create game and agent. We set eps_start = eps_end = 0.05 for near-greedy play.
+            // Create game and agent. We set eps_start = eps_end ~ 0.05 for near-greedy play.
             let mut game = Game::new(w, h);
             let cfg = AgentConfig {
                 obs_dim: game.observation_dim(),
@@ -49,7 +49,7 @@ fn main() {
                 buffer_capacity: 100_000,
                 batch_size: 128,
                 gamma: 0.99,
-                lr: 1e-3,
+                lr: 2.5e-4,            // safer LR
                 eps_start: 0.05,
                 eps_end: 0.05,
                 eps_decay_steps: 1,
@@ -59,11 +59,10 @@ fn main() {
                 seed: 42,
             };
             let mut agent = DQNAgent::new(cfg);
-
-            // Force epsilon to eps_end (in case a saved agent_state overwrote it).
+            // Freeze epsilon to greedyish.
             agent.on_step(u64::MAX / 2);
 
-            // Open a window and let the agent act. No training happens here.
+            // Open a window where the agent acts; no training inside.
             if let Err(e) = event_loop::run_ai_preview(game, agent) {
                 eprintln!("fatal: {e}");
             }
@@ -79,13 +78,13 @@ fn main() {
                 buffer_capacity: 100_000,
                 batch_size: 128,
                 gamma: 0.99,
-                lr: 1e-3,
+                lr: 2.5e-4,            // ↓ safer LR
                 eps_start: 1.0,
                 eps_end: 0.05,
                 eps_decay_steps: 100_000,
                 tau: 0.005,
                 learn_start: 5_000,
-                updates_per_step: 2,
+                updates_per_step: 1,   // ↓ fewer updates per step for stability
                 seed: 1234567,
             };
             let mut agent = DQNAgent::new(cfg);
@@ -94,33 +93,22 @@ fn main() {
             let mut episode_idx: u64 = 0;
             let mut episode_return: f32 = 0.0;
             let mut episode_steps: u64 = 0;
-
-            // We'll maintain our own global step counter for epsilon schedule.
-            // (It doesn't strictly continue from a previously saved steps_done,
-            // but that's fine for practical training.)
             let mut global_steps: u64 = 0;
 
             loop {
-                // Observe.
                 let obs = game.observe();
-                // Act (eps-greedy).
                 let a = agent.select_action(&obs);
-                // Environment step.
                 let StepOutcome { reward, done } = game.step_ai(a);
-                // Next observation.
                 let next_obs = game.observe();
-                // Store transition.
+
                 agent.remember(&obs, a, reward, &next_obs, done);
-                // Learn (if buffer is warm enough).
                 agent.maybe_learn();
 
-                // Counters and epsilon schedule.
                 episode_return += reward;
                 episode_steps += 1;
                 global_steps += 1;
                 agent.on_step(global_steps);
 
-                // Episode end -> log & reset.
                 if done {
                     let _ = db::append_episode_result(
                         "results.csv",
@@ -134,8 +122,8 @@ fn main() {
                         episode_return,
                         episode_steps,
                         agent.current_epsilon(),
-                        agent.last_loss,          // public field
-                        agent.replay_len(),       // assumes you have this getter in dqn.rs
+                        agent.last_loss,        // public field
+                        agent.replay_len(),
                     ));
                     episode_idx += 1;
                     episode_return = 0.0;
@@ -144,7 +132,7 @@ fn main() {
                 }
 
                 // Periodic save.
-                if global_steps % 5000 == 0 {
+                if global_steps % 10_000 == 0 {
                     agent.save_all();
                 }
             }

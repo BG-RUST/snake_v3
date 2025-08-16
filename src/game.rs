@@ -71,7 +71,7 @@ impl Game {
         self.last_manhattan = (self.food.x as i32 - hx).abs() + (self.food.y as i32 - hy).abs();
     }
 
-    /// One logical step for manual mode (uses `pending_dir`).
+    /// O ne logical step for manual mode (uses `pending_dir`).
     pub fn step(&mut self) {
         if self.done {
             return;
